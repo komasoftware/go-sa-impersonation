@@ -1,9 +1,11 @@
 
 # impersonate a service account using golang
 
-We are authenticated using `impersonating-service-account` that has `Service Account Token Creator` permissions on a second service account `target-service-account`
-`target-service-account` has permission to read from a bucket while `impersonating-service-account` does not.
-`impersonating-service-account` impersonates the `target-service-account` to enumerate the contents of a bucket.
+- We are authenticated using `impersonating-service-account` 
+- `impersonating-service-account` is granted role `Service Account Token Creator` permissions on a service account `target-service-account`
+- `target-service-account` has permission to read from a bucket 
+- `impersonating-service-account` has no  permission to read from this bucket
+- `impersonating-service-account` impersonates the `target-service-account` to enumerate the contents of a bucket.
 
 To test locally :
 
