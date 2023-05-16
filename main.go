@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 
 	"cloud.google.com/go/storage"
 	"golang.org/x/oauth2"
@@ -13,48 +14,61 @@ import (
 	"google.golang.org/api/option"
 )
 
+// ImpersonatedTokenSource is a TokenSource implementation that generates an impersonated access token.
+type ImpersonatedTokenSource struct {
+	ctx              context.Context
+	targetServiceAcc string
+	creds            *google.Credentials
+}
+
+// Token returns a new token by generating an impersonated access token.
+func (ts *ImpersonatedTokenSource) Token() (*oauth2.Token, error) {
+	req := &iamcredentials.GenerateAccessTokenRequest{
+		Lifetime: "3600s",
+		Scope:    []string{"https://www.googleapis.com/auth/cloud-platform"},
+	}
+
+	iamClient, err := iamcredentials.NewService(ts.ctx, option.WithTokenSource(ts.creds.TokenSource))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create IAM client: %v", err)
+	}
+
+	resp, err := iamClient.Projects.ServiceAccounts.GenerateAccessToken(fmt.Sprintf("projects/-/serviceAccounts/%s", ts.targetServiceAcc), req).Do()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate access token: %v", err)
+	}
+
+	token := &oauth2.Token{
+		AccessToken: resp.AccessToken,
+		TokenType:   "Bearer",
+	}
+
+	return token, nil
+}
+
 func main() {
+
 	ctx := context.Background()
 
-	// Use the Application Default Credentials to get an access token
 	creds, err := google.FindDefaultCredentials(ctx, iamcredentials.CloudPlatformScope)
 	if err != nil {
 		log.Fatalf("Failed to find default credentials: %v", err)
 	}
 
-	token, err := creds.TokenSource.Token()
-	if err != nil {
-		log.Fatalf("Failed to find default credentials: %v", err)
-	}
-	log.Printf("got token of type: %s", token.TokenType)
-	tokenSource := oauth2.StaticTokenSource(token)
-
-	authorizedClient := oauth2.NewClient(ctx, tokenSource)
-
-	// Create the IAM Credentials API client
-	iamClient, err := iamcredentials.NewService(ctx, option.WithHTTPClient(authorizedClient))
-	if err != nil {
-		log.Fatalf("Failed to create IAM client: %v", err)
+	targetServiceAcc := os.Getenv("TARGET_SERVICE_ACCOUNT")
+	if targetServiceAcc == "" {
+		log.Fatal("TARGET_SERVICE_ACCOUNT environment variable is not set")
 	}
 
-	// Replace with your target service account and desired lifetime
-	targetSA := "target-service-account@koen-gcompany-demo.iam.gserviceaccount.com"
-	lifetime := "3600s"
-
-	// Create the request to generate an access token for the target service account
-	req := &iamcredentials.GenerateAccessTokenRequest{
-		Lifetime: lifetime,
-		Scope:    []string{"https://www.googleapis.com/auth/cloud-platform"},
+	ts := &ImpersonatedTokenSource{
+		ctx:              ctx,
+		targetServiceAcc: targetServiceAcc,
+		creds:            creds,
 	}
 
-	// Generate an access token for the target service account
-	resp, err := iamClient.Projects.ServiceAccounts.GenerateAccessToken(fmt.Sprintf("projects/-/serviceAccounts/%s", targetSA), req).Do()
-	if err != nil {
-		log.Fatalf("Failed to generate access token: %v", err)
-	}
-
+	// authorizedClient := oauth2.NewClient(ctx, ts)
 	// Use the access token to create a storage client and list objects in a bucket
-	storageClient, err := storage.NewClient(ctx, option.WithCredentials(creds))
+	storageClient, err := storage.NewClient(ctx, option.WithTokenSource(ts))
 	if err != nil {
 		log.Fatalf("Failed to create storage client: %v", err)
 	}
@@ -73,5 +87,4 @@ func main() {
 		fmt.Println(objAttrs.Name)
 	}
 
-	fmt.Println(resp.AccessToken)
 }
