@@ -8,7 +8,6 @@ import (
 
 	"cloud.google.com/go/storage"
 	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/google"
 	"google.golang.org/api/iamcredentials/v1"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
@@ -18,7 +17,6 @@ import (
 type ImpersonatedTokenSource struct {
 	ctx              context.Context
 	targetServiceAcc string
-	creds            *google.Credentials
 }
 
 // Token returns a new token by generating an impersonated access token.
@@ -28,7 +26,7 @@ func (ts *ImpersonatedTokenSource) Token() (*oauth2.Token, error) {
 		Scope:    []string{"https://www.googleapis.com/auth/cloud-platform"},
 	}
 
-	iamClient, err := iamcredentials.NewService(ts.ctx, option.WithTokenSource(ts.creds.TokenSource))
+	iamClient, err := iamcredentials.NewService(ts.ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create IAM client: %v", err)
 	}
@@ -50,11 +48,6 @@ func main() {
 
 	ctx := context.Background()
 
-	creds, err := google.FindDefaultCredentials(ctx, iamcredentials.CloudPlatformScope)
-	if err != nil {
-		log.Fatalf("Failed to find default credentials: %v", err)
-	}
-
 	targetServiceAcc := os.Getenv("TARGET_SERVICE_ACCOUNT")
 	if targetServiceAcc == "" {
 		log.Fatal("TARGET_SERVICE_ACCOUNT environment variable is not set")
@@ -63,11 +56,9 @@ func main() {
 	ts := &ImpersonatedTokenSource{
 		ctx:              ctx,
 		targetServiceAcc: targetServiceAcc,
-		creds:            creds,
 	}
 
-	// authorizedClient := oauth2.NewClient(ctx, ts)
-	// Use the access token to create a storage client and list objects in a bucket
+	// Use the ImpersonatedTokenSource to create a Storage client
 	storageClient, err := storage.NewClient(ctx, option.WithTokenSource(ts))
 	if err != nil {
 		log.Fatalf("Failed to create storage client: %v", err)
